@@ -121,13 +121,27 @@ void loop() {
       Serial.print("Invalid payload received, not matching Payload struct!");
     else
     {
-      theData = *(payLoad*)radio.DATA; //assume radio.DATA actually contains our struct and not something else
-      Serial.print(" nodeId=");
-      Serial.print(theData.pos_SOURCE_ID);
-      Serial.print(" uptime=");
-      Serial.print(theData.pos_EPOCH_0);
-      Serial.print(" temp=");
-      Serial.print(theData.pos_TEMP_0);
+     theData = *(payLoad*)radio.DATA;     //assume radio.DATA actually contains our struct and not something else
+      uint32_t time =          (uint32_t)theData.pos_EPOCH_0 << 24 |
+                               (uint32_t)theData.pos_EPOCH_1 << 16 |
+                               (uint32_t)theData.pos_EPOCH_2 << 8  |
+                               (uint32_t)theData.pos_EPOCH_3; 
+
+        
+        uint16_t dielectric =  (uint16_t)theData.pos_DIELECTRIC_0 << 8 |
+                               (uint16_t)theData.pos_DIELECTRIC_1;
+                            
+        uint16_t temperature = (uint16_t)theData.pos_TEMP_0 << 8 |
+                               (uint16_t)theData.pos_TEMP_1;    
+                      
+        TimeElements tm;
+        breakTime(time, tm);        
+        Serialprint(" {**Decagon5TMData ");
+        Serialprint("[Length %d] ",                       theData.pos_PACKET_LENGTH );         
+        Serialprint("[sourceID %d]",                      theData.pos_SOURCE_ID );
+        Serialprint("[RTC %"SCNd32" %d/%d/%d %d:%d:%d] ", time, tm.Day, tm.Month, tm.Year, tm.Hour, tm.Minute, tm.Second );
+        Serialprint("[dielectric %d] [temperature %d] ",  dielectric, temperature );
+        Serialprint("Decagon5TMData**}");
     }
     
     if (radio.ACKRequested())

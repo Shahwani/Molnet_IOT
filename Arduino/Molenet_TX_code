@@ -1,1 +1,156 @@
+#include <RFM69.h>
+#include <SPI.h>
+#include <SPIFlash.h>
+#include <LowPower.h> 
+#include <TimeLib.h>
 
+#define NODEID      15
+#define NETWORKID   100
+#define FREQUENCY   RF69_433MHZ         //Match this with the version of your Arduino! (for instance: RF69_433MHZ, RF69_868MHZ)
+#define KEY         "sampleEncryptKey"  //has to be same 16 characters/bytes on all nodes, not more; not less!
+#define SERIAL_BAUD 9600
+#define ACK_TIME    30                  // # of ms to wait for an ack
+
+RFM69 radio;
+bool promiscuousMode = true;           //set to 'true' to sniff all packets on the same network
+
+typedef struct {
+  byte pos_SINK_ID;
+  byte pos_PACKET_TYPE;
+  byte pos_PACKET_LENGTH;
+  byte pos_SOURCE_ID;
+  byte pos_EPOCH_0;
+  byte pos_EPOCH_1;
+  byte pos_EPOCH_2;
+  byte pos_EPOCH_3;
+  byte pos_DIELECTRIC_0;
+  byte pos_DIELECTRIC_1;
+  byte pos_TEMP_0;
+  byte pos_TEMP_1;
+  byte pos_PACKETS_SENT_0;
+  byte pos_PACKETS_SENT_1;
+  byte pos_SENDING_RETRIES;
+  byte pos_PACKETS_LOST_0;
+  byte pos_PACKETS_LOST_1;
+  byte pos_RTT_0;
+  byte pos_RTT_1;
+  byte pos_RSSI_0;
+  byte pos_RSSI_1;
+  byte pos_EEPROM_CURRENT_PAGE_0;
+  byte pos_EEPROM_CURRENT_PAGE_1;
+  byte pos_EEPROM_CURRENT_PAGE_2;
+
+} payLoad;
+payLoad theData;
+
+void setup() {
+  Serial.begin(SERIAL_BAUD);
+  delay(10);
+  radio.initialize(FREQUENCY,NODEID,NETWORKID);
+
+  radio.encrypt(KEY);
+  radio.promiscuous(promiscuousMode);
+
+//  char buff[400];
+//  sprintf(buff, "\nListening at %d Mhz...", FREQUENCY==RF69_433MHZ ? 433 : FREQUENCY==RF69_868MHZ ? 868 : 915);
+//  Serial.println(buff);
+}
+
+byte ackCount=0;
+
+void loop() {
+  //process any serial input
+   
+  if (radio.receiveDone())
+  {
+//    Serial.print('[');Serial.print(radio.SENDERID, DEC);Serial.print("] ");
+//    Serial.print(" [RX_RSSI:");Serial.print(radio.readRSSI());Serial.print("]");
+    
+    if (promiscuousMode)
+    {
+//      Serial.print("to [");Serial.print(radio.TARGETID, DEC);Serial.print("] ");
+//      //Serial.println();
+    }
+
+    if (radio.DATALEN != sizeof(payLoad))
+      Serial.print("Invalid payload received, not matching Payload struct!");
+    else
+    {
+      theData = *(payLoad*)radio.DATA;     //assume radio.DATA actually contains our struct and not something else
+        uint32_t time =        (uint32_t)theData.pos_EPOCH_0 << 24 |(uint32_t)theData.pos_EPOCH_1 << 16 |
+                               (uint32_t)theData.pos_EPOCH_2 << 8  |(uint32_t)theData.pos_EPOCH_3; 
+
+        uint16_t dielectric =  (uint16_t)theData.pos_DIELECTRIC_0 << 8 |(uint16_t)theData.pos_DIELECTRIC_1;
+                           
+        uint16_t temperature = (uint16_t)theData.pos_TEMP_0 << 8 |(uint16_t)theData.pos_TEMP_1; 
+
+        //   uint16_t temperature=random(0,46);         
+         
+        uint16_t packetsent = (uint16_t)theData.pos_PACKETS_SENT_0 << 8 |(uint16_t)theData.pos_PACKETS_SENT_1; 
+                               
+        uint16_t packetlost = (uint16_t)theData.pos_PACKETS_LOST_0 << 8 |(uint16_t)theData.pos_PACKETS_LOST_1; 
+
+        uint16_t RTT = (uint16_t)theData.pos_RTT_0 << 8 |(uint16_t)theData.pos_RTT_1; 
+
+        uint16_t RSS = (uint16_t)theData.pos_RSSI_0 << 8 |(uint16_t)theData.pos_RSSI_1; 
+
+        uint32_t eeprom=(uint32_t)theData.pos_EEPROM_CURRENT_PAGE_0 << 16 |(uint32_t)theData.pos_EEPROM_CURRENT_PAGE_1 << 8  |
+                               (uint32_t)theData.pos_EEPROM_CURRENT_PAGE_2;   
+
+        Serial.print(time);
+        Serial.print("/");
+        Serial.print(dielectric);
+        Serial.print("/");
+        Serial.print(temperature);
+        Serial.print("/");
+        Serial.print(theData.pos_SINK_ID);
+        Serial.print("/");
+        Serial.print( theData.pos_PACKET_TYPE);
+        Serial.print("/");
+        Serial.print(theData.pos_PACKET_LENGTH);
+        Serial.print("/");
+        Serial.print(theData.pos_SOURCE_ID);
+        Serial.print("/");
+        Serial.print(packetsent);
+        Serial.print("/");
+        Serial.print(theData.pos_SENDING_RETRIES);
+        Serial.print("/");
+        Serial.print(packetlost);
+        Serial.print("/");
+        Serial.print(RSS);
+        Serial.print("/");
+        Serial.print(RTT);
+        Serial.print("/");
+        Serial.print(eeprom);
+        Serial.print("/");
+        Serial.print("ENDPACKET");
+        // Serial.println();
+        }
+      
+    if (radio.ACKRequested())
+    {
+      byte theNodeID = radio.SENDERID;
+      radio.sendACK();
+     // Serial.print(" - ACK sent.");
+
+      // When a node requests an ACK, respond to the ACK
+      // and also send a packet requesting an ACK (every 3rd one only)
+      // This way both TX/RX NODE functions are tested on 1 end at the GATEWAY
+      
+    if (ackCount++%3==0)
+      {
+//        Serial.print(" Pinging node ");
+//        Serial.print(theNodeID);
+//        Serial.print(" - ACK...");
+          delay(5);                   //need this when sending right after reception .. ?
+//        if (radio.sendWithRetry(theNodeID, "ACK TEST", 8, 0))  // 0 = only 1 attempt, no retries
+//          Serial.print("ok!");
+//        else Serial.print("nothing");
+
+    } 
+  }  
+  
+  //Node remains in sleep until awakened
+  //LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
+  }
+}
